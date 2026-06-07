@@ -1026,11 +1026,7 @@ function initAccordion() {
       }
     });
   });
-  if (window.innerWidth <= 860) {
-    document.querySelectorAll('.accordion-group').forEach(g => g.classList.remove('open'));
-  } else {
-    document.querySelectorAll('.accordion-group').forEach(g => g.classList.add('open'));
-  }
+  // На мобильных – изначально все закрыты, на десктопе – открыты (CSS делает своё дело)
 }
 
 // --- Табы для мобильных ---
@@ -1068,7 +1064,7 @@ function initMobileTabs() {
   });
 }
 
-// --- Интеграция ---
+// --- Интеграция (скачивание аддонов) ---
 function initIntegration() {
   const btn = document.getElementById('integrationDownloadBtn');
   const select = document.getElementById('integrationSelect');
@@ -1076,9 +1072,11 @@ function initIntegration() {
     btn.addEventListener('click', () => {
       const engine = select.value;
       let url = '';
+      // Замените ссылки на ваши реальные GitHub релизы или локальные файлы
       if (engine === 'blender') url = 'https://github.com/PatternForge/blender-addon/releases/latest/download/patternforge_blender.zip';
       else if (engine === 'unity') url = 'https://github.com/PatternForge/unity-package/releases/latest/download/PatternForge.unitypackage';
       else if (engine === 'godot') url = 'https://github.com/PatternForge/godot-plugin/releases/latest/download/patternforge_godot.zip';
+      
       if (url) {
         const a = document.createElement('a');
         a.href = url;
