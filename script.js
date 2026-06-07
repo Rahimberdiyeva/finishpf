@@ -8,24 +8,21 @@ import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
 const container2d = document.getElementById('canvas2d');
 const container3d = document.getElementById('canvas3d');
 
-const scene2d = new THREE.Scene(); 
-scene2d.background = null;
-const camera2d = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10); 
-camera2d.position.z = 1;
+const scene2d = new THREE.Scene(); scene2d.background = null;
+const camera2d = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10); camera2d.position.z = 1;
 const renderer2d = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
 renderer2d.setClearColor(0x000000, 0);
 
-const scene3d = new THREE.Scene(); 
-scene3d.background = null;
-const camera3d = new THREE.PerspectiveCamera(45, 1, 0.1, 1000); 
-camera3d.position.set(2.2, 1.6, 2.8);
+const scene3d = new THREE.Scene(); scene3d.background = null;
+const camera3d = new THREE.PerspectiveCamera(45, 1, 0.1, 1000); camera3d.position.set(2.2, 1.6, 2.8);
 const renderer3d = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 
 container2d.appendChild(renderer2d.domElement);
 container3d.appendChild(renderer3d.domElement);
 
 // --- Оффскрин рендерер для PBR/экспорта ---
-const offscreenRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+// ВАЖНО: preserveDrawingBuffer: true, иначе toBlob() возвращает пустые файлы!
+const offscreenRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true });
 offscreenRenderer.setSize(1024, 1024);
 
 function updateSizes() {
@@ -48,9 +45,7 @@ window.addEventListener('resize', updateSizes);
 updateSizes();
 
 const controls3d = new OrbitControls(camera3d, renderer3d.domElement);
-controls3d.enableDamping = true; 
-controls3d.enableZoom = true; 
-controls3d.target.set(0, 0, 0);
+controls3d.enableDamping = true; controls3d.enableZoom = true; controls3d.target.set(0, 0, 0);
 
 // --- Освещение ---
 scene3d.add(new THREE.AmbientLight(0xffffff, 0.4));
@@ -66,6 +61,7 @@ let selectedLayerId = null;
 let isDraggingLayer = false;
 let dragStart = { x: 0, y: 0, layerX: 0, layerY: 0 };
 
+// --- UNIFORMS (с новыми PBR-параметрами) ---
 const uniforms = {
     uScale: { value: 0.8 }, uIntensity: { value: 1.0 }, uPatternType: { value: 0 },
     uColor0: { value: new THREE.Vector3() }, uColor1: { value: new THREE.Vector3() }, uColor2: { value: new THREE.Vector3() }, uColor3: { value: new THREE.Vector3() },
@@ -77,7 +73,11 @@ const uniforms = {
     uWarpEnable: { value: 0 }, uWarpStrength: { value: 0.3 }, uWarpOctaves: { value: 2 },
     uShowRelief: { value: 0 }, uReliefStrength: { value: 1.0 }, uTile3DScale: { value: 1.0 },
     uTime: { value: 0 }, uOverlayScale: { value: 1.0 }, uExportMode: { value: 0 },
-    uResolution: { value: new THREE.Vector2(1024, 1024) } // Добавлено для корректных нормалей
+    // НОВЫЕ uniform-ы для PBR
+    uRoughnessContrast: { value: 1.5 },
+    uMetalThreshold: { value: 0.4 },
+    uMetalScale: { value: 2.0 },
+    uResolution: { value: new THREE.Vector2(1024, 1024) } // для корректных нормалей
 };
 
 function updateColorUniforms() {
@@ -161,7 +161,11 @@ uniform int uShowRelief;
 uniform float uReliefStrength;
 uniform float uTime;
 uniform int uExportMode;
-uniform vec2 uResolution; // Для корректного расчета нормалей
+uniform vec2 uResolution;
+// НОВЫЕ uniform-ы для PBR
+uniform float uRoughnessContrast;
+uniform float uMetalThreshold;
+uniform float uMetalScale;
 
 varying vec2 vUv;
 varying vec3 vWorldPosition;
@@ -366,44 +370,24 @@ float computePattern(vec2 uv) {
     } else if(uPatternType == 1) {
         patternValue = worley(st * 3.5);
         patternValue = pow(patternValue * 1.2, 0.8);
-    } else if(uPatternType == 2) { 
-        patternValue = fbmPerlin(st, uOctaves, uPersistence, uLacunarity); 
-    } else if(uPatternType == 4) { 
-        patternValue = random(st); 
-    } else if(uPatternType == 5) { 
-        patternValue = reactionDiffusion(st); 
-    } else if(uPatternType == 6) { 
-        patternValue = wfcPattern(st); 
-    } else if(uPatternType == 7) { 
-        patternValue = flowField(st); 
-    } else if(uPatternType == 12) { 
-        patternValue = ridgedMF(st, uOctaves, uPersistence, uLacunarity); 
-    } else if(uPatternType == 8) { 
-        patternValue = checker(st, 4.0); 
-    } else if(uPatternType == 9) { 
-        patternValue = stripes(st, 6.0); 
-    } else if(uPatternType == 10) { 
-        patternValue = circles(st, 3.0); 
-    } else if(uPatternType == 11) { 
-        patternValue = grid(st, 6.0); 
-    } else if(uPatternType == 14) { 
-        patternValue = wood(st, 0.8); 
-    } else if(uPatternType == 15) { 
-        patternValue = marble(st, 1.2); 
-    } else if(uPatternType == 16) { 
-        patternValue = tiles(st, 5.0); 
-    } else if(uPatternType == 17) { 
-        patternValue = linearGradient(uv); 
-    } else if(uPatternType == 18) { 
-        patternValue = radialGradient(uv); 
-    } else if(uPatternType == 19) { 
-        patternValue = angularGradient(uv); 
-    } else if(uPatternType == 3) { 
-        patternValue = truchetPattern(st * 3.0, uTime); 
-        patternValue = patternValue * 0.8 + 0.2; 
-    } else { 
-        patternValue = fbmPerlin(st, uOctaves, uPersistence, uLacunarity); 
-    }
+    } else if(uPatternType == 2) { patternValue = fbmPerlin(st, uOctaves, uPersistence, uLacunarity); }
+    else if(uPatternType == 4) { patternValue = random(st); }
+    else if(uPatternType == 5) { patternValue = reactionDiffusion(st); }
+    else if(uPatternType == 6) { patternValue = wfcPattern(st); }
+    else if(uPatternType == 7) { patternValue = flowField(st); }
+    else if(uPatternType == 12) { patternValue = ridgedMF(st, uOctaves, uPersistence, uLacunarity); }
+    else if(uPatternType == 8) { patternValue = checker(st, 4.0); }
+    else if(uPatternType == 9) { patternValue = stripes(st, 6.0); }
+    else if(uPatternType == 10) { patternValue = circles(st, 3.0); }
+    else if(uPatternType == 11) { patternValue = grid(st, 6.0); }
+    else if(uPatternType == 14) { patternValue = wood(st, 0.8); }
+    else if(uPatternType == 15) { patternValue = marble(st, 1.2); }
+    else if(uPatternType == 16) { patternValue = tiles(st, 5.0); }
+    else if(uPatternType == 17) { patternValue = linearGradient(uv); }
+    else if(uPatternType == 18) { patternValue = radialGradient(uv); }
+    else if(uPatternType == 19) { patternValue = angularGradient(uv); }
+    else if(uPatternType == 3) { patternValue = truchetPattern(st * 3.0, uTime); patternValue = patternValue * 0.8 + 0.2; }
+    else { patternValue = fbmPerlin(st, uOctaves, uPersistence, uLacunarity); }
     return clamp(patternValue * uIntensity, 0.0, 1.0);
 }
 
@@ -423,47 +407,53 @@ void main() {
     float patZ = computePattern(uvZ);
     float patternValue = patX * blend.x + patY * blend.y + patZ * blend.z;
     
-    vec3 color = getColor(patternValue);
-    float gray = dot(color, vec3(0.299, 0.587, 0.114));
-    color = mix(vec3(gray), color, uSaturation);
-    if(uBlendMode == 1) color = color * patternValue;
-    
-    vec3 finalColor = color;
-    if(uUseOverlay == 1) {
-        vec4 overlayRGBA = texture2D(uOverlayTexture, vUv);
-        if (overlayRGBA.a > 0.01) finalColor = mix(finalColor, overlayRGBA.rgb, overlayRGBA.a);
-    }
-    
-    if (uShowRelief == 1) {
-        vec3 grad = vec3(dFdx(patternValue), dFdy(patternValue), 0.0);
-        vec3 normal = normalize(vec3(-grad.x * uReliefStrength, -grad.y * uReliefStrength, 1.0));
-        vec3 lightDir = normalize(vec3(0.8, 1.0, 0.3));
-        float diff = max(0.3, dot(normal, lightDir));
-        finalColor = finalColor * (0.6 + diff * 0.5);
-    }
-    
     // --- ИСПРАВЛЕННАЯ ГЕНЕРАЦИЯ PBR КАРТ ---
-    if (uExportMode == 1) { // Normal Map
-        // Умножаем на разрешение, чтобы нормаль не зависела от размера экспорта
+    if (uExportMode == 0) {
+        // Base Color
+        vec3 color = getColor(patternValue);
+        float gray = dot(color, vec3(0.299, 0.587, 0.114));
+        color = mix(vec3(gray), color, uSaturation);
+        if(uBlendMode == 1) color = color * patternValue;
+        vec3 finalColor = color;
+        if(uUseOverlay == 1) {
+            vec4 overlayRGBA = texture2D(uOverlayTexture, vUv);
+            if (overlayRGBA.a > 0.01) finalColor = mix(finalColor, overlayRGBA.rgb, overlayRGBA.a);
+        }
+        if (uShowRelief == 1) {
+            vec3 grad = vec3(dFdx(patternValue), dFdy(patternValue), 0.0);
+            vec3 normal = normalize(vec3(-grad.x * uReliefStrength, -grad.y * uReliefStrength, 1.0));
+            vec3 lightDir = normalize(vec3(0.8, 1.0, 0.3));
+            float diff = max(0.3, dot(normal, lightDir));
+            finalColor = finalColor * (0.6 + diff * 0.5);
+        }
+        gl_FragColor = vec4(finalColor, 1.0);
+    } else if (uExportMode == 1) {
+        // Normal Map
         float dx = dFdx(patternValue) * uResolution.x;
         float dy = dFdy(patternValue) * uResolution.y;
-        float strength = 2.5; // Сила нормалей
-        vec3 normal = normalize(vec3(-dx * strength, -dy * strength, 1.0));
-        finalColor = normal * 0.5 + 0.5; // Преобразуем из [-1, 1] в [0, 1]
-    } else if (uExportMode == 2) { // Roughness
-        // Инвертируем: светлые участки паттерна = шероховатые, темные = гладкие
-        finalColor = vec3(1.0 - patternValue);
-    } else if (uExportMode == 3) { // Metallic
-        // Используем паттерн как маску, пороговое значение для более четкого металла
-        finalColor = vec3(patternValue > 0.75 ? 1.0 : 0.0);
-    } else if (uExportMode == 4) { // Height (Displacement)
-        finalColor = vec3(patternValue);
-    } else if (uExportMode == 5) { // Ambient Occlusion
-        // Затемняем углубления (низкие значения паттерна)
-        finalColor = vec3(pow(patternValue, 2.0));
+        float strength = 2.5;
+        vec3 normalTS = normalize(vec3(-dx * strength, -dy * strength, 1.0));
+        gl_FragColor = vec4(normalTS * 0.5 + 0.5, 1.0);
+    } else if (uExportMode == 2) {
+        // Roughness
+        float roughness = 1.0 - pow(patternValue, uRoughnessContrast);
+        roughness = clamp(roughness, 0.05, 0.95);
+        gl_FragColor = vec4(roughness, roughness, roughness, 1.0);
+    } else if (uExportMode == 3) {
+        // Metallic
+        float metallic = clamp((patternValue - uMetalThreshold) * uMetalScale, 0.0, 1.0);
+        gl_FragColor = vec4(metallic, metallic, metallic, 1.0);
+    } else if (uExportMode == 4) {
+        // Height
+        gl_FragColor = vec4(patternValue, patternValue, patternValue, 1.0);
+    } else if (uExportMode == 5) {
+        // Ambient Occlusion
+        float intensity = length(vec2(dFdx(patternValue), dFdy(patternValue)));
+        float ao = clamp(0.6 + patternValue * 0.4 - intensity * 0.8, 0.2, 1.0);
+        gl_FragColor = vec4(ao, ao, ao, 1.0);
+    } else {
+        gl_FragColor = vec4(0.5, 0.5, 1.0, 1.0);
     }
-    
-    gl_FragColor = vec4(finalColor, 1.0);
 }
 `;
 
@@ -537,13 +527,24 @@ function updateUniformsFromUI() {
     const tile3dEl = document.getElementById('tile3dScale');
     if (tile3dEl) uniforms.uTile3DScale.value = parseFloat(tile3dEl.value);
     
+    // НОВЫЕ PBR-параметры
+    const roughnessContrastEl = document.getElementById('roughnessContrast');
+    if (roughnessContrastEl) uniforms.uRoughnessContrast.value = parseFloat(roughnessContrastEl.value);
+    const metalThresholdEl = document.getElementById('metalThreshold');
+    if (metalThresholdEl) uniforms.uMetalThreshold.value = parseFloat(metalThresholdEl.value);
+    const metalScaleEl = document.getElementById('metalScale');
+    if (metalScaleEl) uniforms.uMetalScale.value = parseFloat(metalScaleEl.value);
+    
     const vals = {
         scaleVal: uniforms.uScale.value.toFixed(2), octavesVal: uniforms.uOctaves.value,
         persistenceVal: uniforms.uPersistence.value.toFixed(2), lacunarityVal: uniforms.uLacunarity.value.toFixed(2),
         saturationVal: uniforms.uSaturation.value.toFixed(2), rotateVal: uniforms.uRotation.value + '°',
         offsetXVal: uniforms.uOffset.value.x.toFixed(2), offsetYVal: uniforms.uOffset.value.y.toFixed(2),
         warpStrengthVal: uniforms.uWarpStrength.value.toFixed(2), warpOctavesVal: uniforms.uWarpOctaves.value,
-        reliefStrengthVal: uniforms.uReliefStrength.value.toFixed(2)
+        reliefStrengthVal: uniforms.uReliefStrength.value.toFixed(2),
+        roughnessContrastVal: uniforms.uRoughnessContrast.value.toFixed(2),
+        metalThresholdVal: uniforms.uMetalThreshold.value.toFixed(2),
+        metalScaleVal: uniforms.uMetalScale.value.toFixed(2)
     };
     if (document.getElementById('intensityVal')) vals.intensityVal = uniforms.uIntensity.value.toFixed(2);
     if (document.getElementById('tile3dScaleVal')) vals.tile3dScaleVal = uniforms.uTile3DScale.value.toFixed(2);
@@ -556,7 +557,7 @@ function updateUniformsFromUI() {
     schedulePBRUpdate();
 }
 
-const controlIds = ['scale','octaves','persistence','lacunarity','saturation','blendMode','rotate','offsetX', 'offsetY','mirror','warpStrength','warpOctaves','reliefStrength'];
+const controlIds = ['scale','octaves','persistence','lacunarity','saturation','blendMode','rotate','offsetX', 'offsetY','mirror','warpStrength','warpOctaves','reliefStrength','roughnessContrast','metalThreshold','metalScale'];
 controlIds.forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('input', updateUniformsFromUI); });
 document.getElementById('warpEnable')?.addEventListener('change', updateUniformsFromUI);
 document.getElementById('relief2d')?.addEventListener('change', updateUniformsFromUI);
@@ -668,7 +669,14 @@ const loadPresetBtn = document.getElementById('loadPresetBtn');
 function getCurrentPreset() {
     return {
         colors: activeColors.map(c => c.getHexString()),
-        uniforms: { scale:uniforms.uScale.value, octaves:uniforms.uOctaves.value, persistence:uniforms.uPersistence.value, lacunarity:uniforms.uLacunarity.value, saturation:uniforms.uSaturation.value, blendMode:uniforms.uBlendMode.value, rotation:uniforms.uRotation.value, offsetX:uniforms.uOffset.value.x, offsetY:uniforms.uOffset.value.y, mirror:uniforms.uMirror.value, warpEnable:uniforms.uWarpEnable.value, warpStrength:uniforms.uWarpStrength.value, warpOctaves:uniforms.uWarpOctaves.value, reliefStrength:uniforms.uReliefStrength.value, intensity:uniforms.uIntensity.value, tile3dScale:uniforms.uTile3DScale.value },
+        uniforms: { 
+            scale:uniforms.uScale.value, octaves:uniforms.uOctaves.value, persistence:uniforms.uPersistence.value, lacunarity:uniforms.uLacunarity.value, 
+            saturation:uniforms.uSaturation.value, blendMode:uniforms.uBlendMode.value, rotation:uniforms.uRotation.value, 
+            offsetX:uniforms.uOffset.value.x, offsetY:uniforms.uOffset.value.y, mirror:uniforms.uMirror.value, 
+            warpEnable:uniforms.uWarpEnable.value, warpStrength:uniforms.uWarpStrength.value, warpOctaves:uniforms.uWarpOctaves.value, 
+            reliefStrength:uniforms.uReliefStrength.value, intensity:uniforms.uIntensity.value, tile3dScale:uniforms.uTile3DScale.value,
+            roughnessContrast:uniforms.uRoughnessContrast.value, metalThreshold:uniforms.uMetalThreshold.value, metalScale:uniforms.uMetalScale.value
+        },
         patternType:uniforms.uPatternType.value
     };
 }
@@ -982,7 +990,7 @@ async function renderPBRMap(res, type) {
     tuni.uUseOverlay = { value: 0 }; 
     tuni.uShowRelief = { value: 0 };
     tuni.uExportMode = { value: modeMap[type] !== undefined ? modeMap[type] : 0 };
-    tuni.uResolution = { value: new THREE.Vector2(res, res) }; // Передаем разрешение для корректных нормалей
+    tuni.uResolution = { value: new THREE.Vector2(res, res) }; // для корректных нормалей
     
     const sc = new THREE.Scene();
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
@@ -1087,7 +1095,7 @@ function initMobileTabs() {
     });
 }
 
-// --- Интеграция: кнопка скачивания аддонов ---
+// --- Интеграция ---
 function initIntegration() {
     const btn = document.getElementById('integrationDownloadBtn');
     const select = document.getElementById('integrationSelect');
