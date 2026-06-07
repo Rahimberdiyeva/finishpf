@@ -173,44 +173,61 @@ varying vec2 vUv;
 varying vec3 vWorldPosition;
 varying vec3 vNormalW;
 
-float random(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123); }
+float random(vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+}
+
 vec2 hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + 45.32);
     return fract(vec2(p.x * p.y, p.y * p.x)) * 2.0 - 1.0;
 }
+
 float perlinNoise(vec2 st) {
-    vec2 i = floor(st); vec2 f = fract(st);
+    vec2 i = floor(st);
+    vec2 f = fract(st);
     vec2 u = f * f * (3.0 - 2.0 * f);
-    vec2 grad00 = hash(i), grad10 = hash(i + vec2(1.0, 0.0));
-    vec2 grad01 = hash(i + vec2(0.0, 1.0)), grad11 = hash(i + vec2(1.0, 1.0));
-    float dot00 = dot(grad00, f), dot10 = dot(grad10, f - vec2(1.0, 0.0));
-    float dot01 = dot(grad01, f - vec2(0.0, 1.0)), dot11 = dot(grad11, f - vec2(1.0, 1.0));
+    vec2 grad00 = hash(i);
+    vec2 grad10 = hash(i + vec2(1.0, 0.0));
+    vec2 grad01 = hash(i + vec2(0.0, 1.0));
+    vec2 grad11 = hash(i + vec2(1.0, 1.0));
+    float dot00 = dot(grad00, f);
+    float dot10 = dot(grad10, f - vec2(1.0, 0.0));
+    float dot01 = dot(grad01, f - vec2(0.0, 1.0));
+    float dot11 = dot(grad11, f - vec2(1.0, 1.0));
     return mix(mix(dot00, dot10, u.x), mix(dot01, dot11, u.x), u.y) * 0.5 + 0.5;
 }
+
 float fbmPerlin(vec2 st, int oct, float pers, float lac) {
     float val = 0.0, amp = 0.5, freq = 2.0;
     for(int i=0; i < 6; i++) {
         if(i >= oct) break;
         val += amp * (perlinNoise(st * freq) * 2.0 - 1.0);
-        amp *= pers; freq *= lac;
+        amp *= pers;
+        freq *= lac;
     }
     return val * 0.5 + 0.5;
 }
+
 float worley(vec2 uv) {
-    vec2 p = floor(uv); vec2 f = fract(uv); float res = 1.0;
-    for(int j=-1; j <= 1; j++) for(int i=-1; i <= 1; i++) {
-        vec2 b = vec2(float(i), float(j));
-        vec2 r = b - f + random(p + b);
-        res = min(res, dot(r,r));
-    }
+    vec2 p = floor(uv);
+    vec2 f = fract(uv);
+    float res = 1.0;
+    for(int j=-1; j <= 1; j++)
+        for(int i=-1; i <= 1; i++) {
+            vec2 b = vec2(float(i), float(j));
+            vec2 r = b - f + random(p + b);
+            res = min(res, dot(r,r));
+        }
     return sqrt(res);
 }
+
 float truchetPattern(vec2 uv, float t) {
     uv = fract(uv * 3.0) - 0.5;
     float angle = sin(t + uv.x * 10.0) * cos(t + uv.y * 10.0);
     return step(length(uv), 0.4 + 0.2 * sin(angle * 20.0 + t));
 }
+
 vec2 domainWarp(vec2 uv, float strength, int octaves) {
     vec2 warped = uv;
     for(int i=0; i < 5; i++) {
@@ -219,12 +236,14 @@ vec2 domainWarp(vec2 uv, float strength, int octaves) {
     }
     return warped;
 }
+
 float reactionDiffusion(vec2 uv) {
     vec2 p = uv * 4.0;
     float a = sin(p.x * 3.0) * cos(p.y * 3.0);
     float b = cos(p.x * 4.2) * sin(p.y * 4.2);
     return clamp(a * 0.5 + b * 0.5 + 0.5, 0.0, 1.0);
 }
+
 float flowField(vec2 uv) {
     vec2 q = uv * 3.0;
     float angle = sin(q.y * 0.7) * cos(q.x * 0.5);
@@ -233,6 +252,7 @@ float flowField(vec2 uv) {
     float field = sin(uv.x * 10.0) * cos(uv.y * 10.0);
     return smoothstep(-0.3, 0.7, field);
 }
+
 float wfcPattern(vec2 uv) {
     vec2 tile = floor(uv * 8.0);
     float hashVal = random(tile);
@@ -247,29 +267,59 @@ float wfcPattern(vec2 uv) {
     else pattern = fract(sub.x * 3.0 + sub.y * 2.0);
     return pattern;
 }
+
 float ridgedMF(vec2 uv, int oct, float pers, float lac) {
     float val = 0.0, amp = 0.5, freq = 2.0;
     for(int i=0; i < 6; i++) {
         if(i >= oct) break;
         float n = perlinNoise(uv * freq) * 2.0 - 1.0;
         n = 1.0 - abs(n);
-        val += amp * n; amp *= pers; freq *= lac;
+        val += amp * n;
+        amp *= pers;
+        freq *= lac;
     }
     return clamp(val, 0.0, 1.0);
 }
-float checker(vec2 uv, float freq) { vec2 p = floor(uv * freq); return mod(p.x + p.y, 2.0); }
-float stripes(vec2 uv, float freq) { return step(0.5, fract(uv.x * freq)); }
-float circles(vec2 uv, float freq) { vec2 center = vec2(0.5, 0.5); return fract(length(uv - center) * freq * 2.0); }
-float grid(vec2 uv, float freq) { vec2 g = fract(uv * freq); return max(step(0.92, g.x), step(0.92, g.y)); }
-float tiles(vec2 uv, float freq) { vec2 f = fract(uv * freq); return clamp(1.0 - (step(0.75, f.x) + step(0.75, f.y)), 0.0, 1.0); }
-float wood(vec2 uv, float freq) {
-    float dist = length(uv - 0.5) * 2.0;
-    return clamp(sin(dist * freq * 12.0 + sin(uv.x * 8.0) * 1.5) * 0.5 + 0.5, 0.0, 1.0);
+
+float checker(vec2 uv, float freq) {
+    vec2 p = floor(uv * freq);
+    return mod(p.x + p.y, 2.0);
 }
+
+float stripes(vec2 uv, float freq) {
+    return step(0.5, fract(uv.x * freq));
+}
+
+float circles(vec2 uv, float freq) {
+    vec2 center = vec2(0.5, 0.5);
+    float radius = length(uv - center) * freq;
+    return fract(radius * 2.0);
+}
+
+float grid(vec2 uv, float freq) {
+    vec2 g = fract(uv * freq);
+    return max(step(0.92, g.x), step(0.92, g.y));
+}
+
+float tiles(vec2 uv, float freq) {
+    vec2 f = fract(uv * freq);
+    float line = step(0.75, f.x) + step(0.75, f.y);
+    return clamp(1.0 - line, 0.0, 1.0);
+}
+
+float wood(vec2 uv, float freq) {
+    vec2 center = vec2(0.5, 0.5);
+    float dist = length(uv - center) * 2.0;
+    float rings = sin(dist * freq * 12.0 + sin(uv.x * 8.0) * 1.5);
+    return clamp(rings * 0.5 + 0.5, 0.0, 1.0);
+}
+
 float marble(vec2 uv, float freq) {
     float noise = fbmPerlin(uv * freq * 3.0, 4, 0.6, 2.0);
-    return clamp(sin((uv.x * freq * 5.0 + noise * 3.0) * 3.14159) * 0.6 + 0.5, 0.0, 1.0);
+    float veins = sin((uv.x * freq * 5.0 + noise * 3.0) * 3.14159);
+    return clamp(veins * 0.6 + 0.5, 0.0, 1.0);
 }
+
 float linearGradient(vec2 uv) { return uv.x; }
 float radialGradient(vec2 uv) { return length(uv - 0.5) * 1.414; }
 float angularGradient(vec2 uv) { return atan(uv.y - 0.5, uv.x - 0.5) / (2.0 * 3.14159) + 0.5; }
@@ -315,9 +365,14 @@ float computePattern(vec2 uv) {
     if(uWarpEnable == 1) st = domainWarp(st, uWarpStrength, uWarpOctaves);
     
     float patternValue;
-    if(uPatternType == 0) { patternValue = (sin(st.x * 8.0) * cos(st.y * 8.0) + sin(st.y * 12.0 + st.x * 5.0)) * 0.6 + 0.5; }
-    else if(uPatternType == 1) { patternValue = pow(worley(st * 3.5) * 1.2, 0.8); }
-    else if(uPatternType == 2) { patternValue = fbmPerlin(st, uOctaves, uPersistence, uLacunarity); }
+    if(uPatternType == 0) {
+        float w1 = sin(st.x * 8.0) * cos(st.y * 8.0);
+        float w2 = sin(st.y * 12.0 + st.x * 5.0);
+        patternValue = (w1 + w2) * 0.6 + 0.5;
+    } else if(uPatternType == 1) {
+        patternValue = worley(st * 3.5);
+        patternValue = pow(patternValue * 1.2, 0.8);
+    } else if(uPatternType == 2) { patternValue = fbmPerlin(st, uOctaves, uPersistence, uLacunarity); }
     else if(uPatternType == 4) { patternValue = random(st); }
     else if(uPatternType == 5) { patternValue = reactionDiffusion(st); }
     else if(uPatternType == 6) { patternValue = wfcPattern(st); }
@@ -333,7 +388,7 @@ float computePattern(vec2 uv) {
     else if(uPatternType == 17) { patternValue = linearGradient(uv); }
     else if(uPatternType == 18) { patternValue = radialGradient(uv); }
     else if(uPatternType == 19) { patternValue = angularGradient(uv); }
-    else if(uPatternType == 3) { patternValue = truchetPattern(st * 3.0, uTime) * 0.8 + 0.2; }
+    else if(uPatternType == 3) { patternValue = truchetPattern(st * 3.0, uTime); patternValue = patternValue * 0.8 + 0.2; }
     else { patternValue = fbmPerlin(st, uOctaves, uPersistence, uLacunarity); }
     return clamp(patternValue * uIntensity, 0.0, 1.0);
 }
@@ -343,7 +398,9 @@ void main() {
     blend = pow(blend, vec3(2.0));
     blend /= (blend.x + blend.y + blend.z);
     
-    vec2 uvX = vWorldPosition.yz, uvY = vWorldPosition.xz, uvZ = vWorldPosition.xy;
+    vec2 uvX = vWorldPosition.yz;
+    vec2 uvY = vWorldPosition.xz;
+    vec2 uvZ = vWorldPosition.xy;
     float triScale = 0.8;
     uvX *= triScale; uvY *= triScale; uvZ *= triScale;
     
@@ -354,7 +411,7 @@ void main() {
     
     // === ИСПРАВЛЕННАЯ ГЕНЕРАЦИЯ PBR КАРТ ===
     if (uExportMode == 0) {
-        // Base Color (triplanar)
+        // Base Color (triplanar для 3D модели)
         vec3 color = getColor(patternValue);
         float gray = dot(color, vec3(0.299, 0.587, 0.114));
         color = mix(vec3(gray), color, uSaturation);
@@ -374,9 +431,9 @@ void main() {
         gl_FragColor = vec4(finalColor, 1.0);
     } 
     else if (uExportMode == 1) {
-        // Normal map: конечные разности по UV (Sobel-подобный оператор)
+        // Normal map через конечные разности по UV (для плоскости при экспорте)
         vec2 uv = vUv;
-        float h  = computePattern(uv);
+        float h = computePattern(uv);
         float hL = computePattern(uv - vec2(uTexelSize.x, 0.0));
         float hR = computePattern(uv + vec2(uTexelSize.x, 0.0));
         float hD = computePattern(uv - vec2(0.0, uTexelSize.y));
@@ -393,7 +450,7 @@ void main() {
         gl_FragColor = vec4(roughness, roughness, roughness, 1.0);
     } 
     else if (uExportMode == 3) {
-        // Metallic: плавный порог через контраст
+        // Metallic: только самые светлые участки становятся металлом
         float h = computePattern(vUv);
         float metallic = clamp((h - uMetalThreshold) * uMetalScale, 0.0, 1.0);
         gl_FragColor = vec4(metallic, metallic, metallic, 1.0);
@@ -404,9 +461,9 @@ void main() {
         gl_FragColor = vec4(h, h, h, 1.0);
     } 
     else if (uExportMode == 5) {
-        // AO: лапласиан (затемнение в углублениях)
+        // AO на основе кривизны (лапласиан)
         vec2 uv = vUv;
-        float h  = computePattern(uv);
+        float h = computePattern(uv);
         float hL = computePattern(uv - vec2(uTexelSize.x, 0.0));
         float hR = computePattern(uv + vec2(uTexelSize.x, 0.0));
         float hD = computePattern(uv - vec2(0.0, uTexelSize.y));
@@ -416,7 +473,7 @@ void main() {
         gl_FragColor = vec4(ao, ao, ao, 1.0);
     } 
     else {
-        gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
+        gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0); // Fallback (magenta)
     }
 }
 `;
@@ -524,7 +581,7 @@ function updateUniformsFromUI() {
     schedulePBRUpdate();
 }
 
-const controlIds = ['scale','octaves','persistence','lacunarity','saturation','blendMode','rotate','offsetX','offsetY','mirror','warpStrength','warpOctaves','reliefStrength','normalStrength','roughnessContrast','metalThreshold','metalScale'];
+const controlIds = ['scale','octaves','persistence','lacunarity','saturation','blendMode','rotate','offsetX', 'offsetY','mirror','warpStrength','warpOctaves','reliefStrength','normalStrength','roughnessContrast','metalThreshold','metalScale'];
 controlIds.forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('input', updateUniformsFromUI); });
 document.getElementById('warpEnable')?.addEventListener('change', updateUniformsFromUI);
 document.getElementById('relief2d')?.addEventListener('change', updateUniformsFromUI);
@@ -939,7 +996,6 @@ document.getElementById('exportModelBtn')?.addEventListener('click', async () =>
 
 function downloadBlob(blob, filename) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
 
-// --- ИСПРАВЛЕННЫЙ cloneUniforms (корректно клонирует Vector2/Vector3) ---
 function cloneUniforms(src) { 
     const dst = {}; 
     for (const key in src) {
@@ -959,8 +1015,7 @@ async function renderPBRMap(res, type) {
     tuni.uUseOverlay = { value: 0 }; 
     tuni.uShowRelief = { value: 0 };
     tuni.uExportMode = { value: modeMap[type] !== undefined ? modeMap[type] : 0 };
-    // Передаём размер текселя в зависимости от разрешения
-    tuni.uTexelSize = { value: new THREE.Vector2(1/res, 1/res) };
+    tuni.uTexelSize = { value: new THREE.Vector2(1/res, 1/res) }; // Передаем размер текселя для корректных нормалей
     
     const sc = new THREE.Scene();
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
